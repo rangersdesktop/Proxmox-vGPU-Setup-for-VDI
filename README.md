@@ -1,2 +1,4 @@
 # Proxmox-vGPU-Setup-for-VDI
-Code and other bits that didn't fit well on my tutorial page
+This Repo contains code and other bits that didn't fit well on my tutorial page.
+
+See the full tutorial for vGPU on Proxmox on my website: https://rangersdesk.top/2024/01/14/remote-gaming-on-my-r720/
