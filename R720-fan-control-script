@@ -1,0 +1,94 @@
+## Use this as a starting point if you want to do something similar with your PowerEdge server:
+
+# !! Make sure to fix the three ipmitool commands below with you (IDRAC_IP), (USERNAME), and (PASSWORD) !!
+# the command to get GPU temps is biased on this command:
+# nvidia-smi --query-gpu=gpu_name,temperature.gpu --format=csv
+
+
+
+while true; do
+
+#!/bin/bash
+
+calculate_fan_speed() {
+local temp=$1
+local min_temp=43
+local max_temp=85
+local selected_element=""
+local fan_speed_list=("0xA" "0xB" "0xC" "0xD" "0xE" "0xF" "0x10" "0x11" "0x12" "0x13" "0x14" "0x15" "0x16" "0x17"
+"0x18" "0x19" "0x1A" "0x1B" "0x1C" "0x1D" "0x1E" "0x1F" "0x20" "0x21" "0x22" "0x23" "0x24"
+"0x25" "0x26" "0x27" "0x28" "0x29" "0x2A" "0x2B" "0x2C" "0x2D" "0x2E" "0x2F" "0x30" "0x31"
+"0x32" "0x33" "0x34")
+
+# If the temperature is below or equal to min_temp, set fan speed to 10%
+if [ "$temp" -le "$min_temp" ]; then
+selected_element="0xA"
+# If the temperature is above or equal to max_temp, set fan speed to 52%
+elif [ "$temp" -ge "$max_temp" ]; then
+selected_element="0x34"
+else
+# Calculate fan speed based on a linear scale between min_temp and max_temp
+local range=$((max_temp - min_temp))
+local scaled_temp=$((temp - min_temp))
+local fan_speed_select=$((scaled_temp * 42 / range + 1))
+selected_element="${fan_speed_list[fan_speed_select - 1]}"
+fi
+
+echo "$selected_element"
+}
+
+# Function to check if any temperature is above 85
+check_temp_above_85() {
+local temps="$1"
+local highest_temp=$(echo "$temps" | sort -n | tail -n 1)
+
+if [ "$highest_temp" -gt 85 ]; then
+return 0 # Temperature is above 85
+else
+return 1 # Temperature is not above 85
+fi
+}
+
+# Capture GPU temperatures into a variable
+gpu_temps=$(nvidia-smi --query-gpu=gpu_name,temperature.gpu --format=csv,noheader | awk -F', ' '{print $2}')
+
+# Capture CPU temperatures into a variable
+cpu_temps=$(ipmitool sdr | grep "Temp" | awk '$3 != "|" {print $3}')
+
+# Print each element in gpu_temps
+echo "GPU Temperatures:"
+for temp in $gpu_temps; do
+echo "$temp"
+done
+
+# Print each element in cpu_temps
+echo "CPU Temperatures:"
+for temp in $cpu_temps; do
+echo "$temp"
+done
+
+# Combine GPU and CPU temperatures for temperature checks
+all_temps="$gpu_temps $cpu_temps"
+
+# Check if any temperature is above 85, and disable manual fan control if true
+if check_temp_above_85 "$all_temps"; then
+echo "Disabling manual fan control."
+ipmitool -I lanplus -H (IDRAC_IP) -U (USERNAME) -P (PASSWORD) raw 0x30 0x30 0x01 0x01
+else
+# Sort temperatures in descending order
+sorted_temps=$(echo "$all_temps" | tr ' ' '\n' | sort -n -r)
+
+# Extract the highest temperature
+highest_temp=$(echo "$sorted_temps" | head -n 1)
+selected_element=$(calculate_fan_speed "$highest_temp")
+
+# Print the highest temperature and the corresponding fan speed
+echo "Highest temperature: $highest_temp"
+echo "Setting fan speed to: $selected_element"
+
+ipmitool -I lanplus -H (IDRAC_IP) -U (USERNAME) -P (PASSWORD) raw 0x30 0x30 0x01 0x00
+ipmitool -I lanplus -H (IDRAC_IP) -U (USERNAME) -P (PASSWORD) raw 0x30 0x30 0x02 0xff "$selected_element"
+fi
+
+sleep 15 # check temps every 15 sec
+done
